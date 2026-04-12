@@ -1,0 +1,14 @@
+{
+  "ticket": "test-ticket",
+  "app": "kematangan",
+  "user": {
+    "id": 9001,
+    "username": "bagor_admin_user",
+    "name": "Bagor Admin",
+    "email": "bagor@example.test",
+    "app_role_slug": "bagor-admin",
+    "app_roles": ["bagor-admin"],
+    "is_opd_locked": true,
+    "allowed_opd_ids_by_app": { "kematangan": [3,4] }
+  }
+}
