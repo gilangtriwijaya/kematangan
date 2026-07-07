@@ -3,6 +3,7 @@
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Console\Scheduling\Schedule;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -31,10 +32,17 @@ return Application::configure(basePath: dirname(__DIR__))
             'sso.auth' => \App\Http\Middleware\EnsureSsoAuthenticated::class,
             'sso.type'    => \App\Http\Middleware\EnsureSsoType::class,
             'sso.role' => \App\Http\Middleware\EnsureSsoRole::class,
+            'api.publik.key' => \App\Http\Middleware\ValidasiApiKeyPublik::class,
         ]);
 
         // Catatan: global default (TrustProxies, HandleCors, TrimStrings, dsb) sudah diatur oleh framework.
         // Tidak perlu dipindahkan manual ke sini kecuali kamu punya custom tambahan lain.
+    })
+    ->withSchedule(function (Schedule $schedule) {
+        $schedule->command('statpub:rebuild')
+            ->hourly()
+            ->appendOutputTo(storage_path('logs/statpub-rebuild.log'))
+            ->withoutOverlapping();
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // biarkan default

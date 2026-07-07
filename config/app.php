@@ -15,6 +15,8 @@ return [
 
     'name' => env('APP_NAME', 'Laravel'),
 
+    'code' => env('APP_CODE', 'kematangan'),
+
     /*
     |--------------------------------------------------------------------------
     | Application Environment
@@ -40,6 +42,12 @@ return [
     */
 
     'debug' => (bool) env('APP_DEBUG', false),
+
+    'publik_api_key' => env('PUBLIK_API_KEY'),
+    'publik_cache_ttl' => env('PUBLIK_CACHE_TTL', 3600),
+    'website_publik_url' => env('WEBSITE_PUBLIK_URL', 'https://bagianorganisasi.anambaskab.go.id'),
+    'website_invalidate_url' => env('WEBSITE_INVALIDATE_URL'),
+    'website_invalidate_secret' => env('WEBSITE_INVALIDATE_SECRET'),
 
     /*
     |--------------------------------------------------------------------------

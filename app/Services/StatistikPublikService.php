@@ -2,16 +2,46 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class StatistikPublikService
 {
+    private const CACHE_VERSION = 'v2';
+
+    public function cacheKey(?int $kegiatanId = null): string
+    {
+        $id = $this->resolveKegiatanId($kegiatanId);
+
+        return sprintf('statpub:%s:k%s', self::CACHE_VERSION, $id);
+    }
+
+    public function rebuildCache(?int $kegiatanId = null): void
+    {
+        $ttl = max(60, (int) config('penilaian.cache_ttl', 600));
+        $data = $this->buildPayload($kegiatanId);
+
+        $wrapped = [
+            'success' => true,
+            'app' => config('app.code', config('app.name')),
+            'resource' => 'statistik',
+            'generated_at' => now()->toIso8601String(),
+            'cache_ttl' => $ttl,
+            'cache_hit' => false,
+            'data' => $data,
+        ];
+
+        Cache::store('file')->put($this->cacheKey($kegiatanId), $wrapped, $ttl);
+    }
+
     /**
      * Payload statistik untuk 1 kegiatan (tahun).
      * Dipakai OLEH API PUBLIK (website Indeks), bukan dashboard internal.
      */
-    public function buildPayload(int $kegiatanId): array
+    public function buildPayload(?int $kegiatanId = null): array
     {
+        $kegiatanId = $this->resolveKegiatanId($kegiatanId);
+
         // Rentang kategori (inklusif pada batas atas; segmen terakhir terbuka)
         $kategoriCfg = [
             ['nama' => 'Sangat Rendah', 'min' => 10.0, 'max' => 19.0],
@@ -143,6 +173,15 @@ class StatistikPublikService
                 'data'   => $barVarData,
             ],
         ];
+    }
+
+    private function resolveKegiatanId(?int $kegiatanId = null): int
+    {
+        if ($kegiatanId !== null && $kegiatanId > 0) {
+            return $kegiatanId;
+        }
+
+        return max(1, (int) config('penilaian.kegiatan_id', 1));
     }
 
     private function kategoriDariSkor(float $skor, array $cfg): string

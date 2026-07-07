@@ -3,87 +3,89 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Services\StatistikPublikService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
-use App\Services\StatistikPublikService;
 
 class StatistikPublikController extends Controller
 {
     public function __construct(private StatistikPublikService $svc) {}
 
-    public function show(Request $request)
+    public function show(Request $request): JsonResponse
     {
-        // 1) Paksa cache 'file' (aman di shared hosting/cPanel)
         config(['cache.default' => 'file']);
 
-        // 2) Tentukan kegiatan_id:
-        //    - prioritas: ?kegiatan_id=  (opsional, int > 0)
-        //    - fallback:  config('penilaian.kegiatan_id') atau yang aktif di service
-        $kegiatanId = (int) $request->integer('kegiatan_id')
-            ?: (int) config('penilaian.kegiatan_id', 0);
-
-        if ($kegiatanId <= 0) {
-            // biarkan service menentukan kegiatan aktif sendiri
-            $kegiatanId = 0;
-        }
-
-        // 3) TTL & cache-busting opsional via ?refresh=1
-        $ttl      = max(60, (int) config('penilaian.cache_ttl', 600));
-        $refresh  = $request->boolean('refresh');
-
-        // 4) Cache key yang stabil + versioning
-        //    Ganti versi jika format payload berubah agar cache lama tidak dipakai
-        $ver      = 'v2'; // bump kalau struktur output diubah
-        $cacheKey = "statpub:{$ver}:k{$kegiatanId}";
+        $kegiatanId = (int) $request->integer('kegiatan_id') ?: (int) config('penilaian.kegiatan_id', 0);
+        $ttl = max(60, (int) config('penilaian.cache_ttl', 600));
+        $refresh = $request->boolean('refresh');
+        $cacheKey = $this->svc->cacheKey($kegiatanId > 0 ? $kegiatanId : null);
+        $cacheHit = Cache::store('file')->has($cacheKey);
 
         try {
             if ($refresh) {
                 Cache::store('file')->forget($cacheKey);
+                $cacheHit = false;
             }
 
-            $data = Cache::store('file')->remember($cacheKey, $ttl, function () use ($kegiatanId) {
-                // Service mengerjakan perhitungan yang benar:
-                // - total_nilai_kabupaten = (Σ total_poin OPD terbaru) / total_opd (34)
-                // - distribusi kategori sesuai rentang yang sudah ditetapkan
-                return $this->svc->buildPayload($kegiatanId > 0 ? $kegiatanId : null);
+            $payload = Cache::store('file')->remember($cacheKey, $ttl, function () use ($kegiatanId) {
+                return [
+                    'success' => true,
+                    'app' => config('app.code', config('app.name')),
+                    'resource' => 'statistik',
+                    'generated_at' => now()->toIso8601String(),
+                    'cache_ttl' => max(60, (int) config('penilaian.cache_ttl', 600)),
+                    'cache_hit' => false,
+                    'data' => $this->svc->buildPayload($kegiatanId > 0 ? $kegiatanId : null),
+                ];
             });
 
-            // Hardening kecil: pastikan field minimal ada
-            $data ??= [];
-            $data['updated_at']  = $data['updated_at']  ?? now()->toIso8601String();
-            $data['ringkasan']   = $data['ringkasan']   ?? [
-                'total_nilai_kabupaten' => 0,
-                'persentase_pengisian'  => 0,
-                'total_opd_mengisi'     => 0,
-                'total_opd'             => 0,
-            ];
-            $data['error']       = (bool) ($data['error'] ?? false);
+            $payload['cache_hit'] = $cacheHit;
+            $request->attributes->set('statpub.cache_hit', $cacheHit);
 
-            return response()->json($data);
+            return response()->json($payload);
 
         } catch (\Throwable $e) {
             Log::error('statpub_api_error', [
                 'kegiatan_id' => $kegiatanId,
                 'msg'         => $e->getMessage(),
             ]);
+            $request->attributes->set('statpub.cache_hit', false);
 
-            // Fallback aman supaya front-end tetap hidup
             return response()->json([
-                'error'      => true,
-                'message'    => 'Gagal membangun statistik.',
-                'updated_at' => now()->toIso8601String(),
-                'kegiatan_id'=> $kegiatanId ?: null,
-                'ringkasan'  => [
-                    'total_nilai_kabupaten' => 0,
-                    'persentase_pengisian'  => 0,
-                    'total_opd_mengisi'     => 0,
-                    'total_opd'             => 0,
-                ],
-                'donut_kategori' => ['labels' => [], 'data' => []],
-                'bar_opd'        => ['labels' => [], 'data' => []],
-                'bar_variabel'   => ['labels' => [], 'data' => []],
-            ], 200);
+                'success' => false,
+                'app' => config('app.code', config('app.name')),
+                'resource' => 'statistik',
+                'message' => 'Layanan sementara tidak tersedia',
+                'generated_at' => now()->toIso8601String(),
+            ], 503);
         }
+    }
+
+    public function health(Request $request): JsonResponse
+    {
+        $cacheKey = $this->svc->cacheKey((int) config('penilaian.kegiatan_id', 0));
+
+        return response()->json([
+            'success' => true,
+            'app' => config('app.code', config('app.name')),
+            'cache_valid' => Cache::store('file')->has($cacheKey),
+            'checked_at' => now()->toIso8601String(),
+        ]);
+    }
+
+    public function ping(): JsonResponse
+    {
+        return response()
+            ->json(['pong' => true, 'ts' => now()->toIso8601String()])
+            ->setPublic()
+            ->setMaxAge(60)
+            ->setSharedMaxAge(60);
+    }
+
+    public function legacyRedirect(Request $request)
+    {
+        return redirect()->route('statpub.show', $request->query(), 301);
     }
 }

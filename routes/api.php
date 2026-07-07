@@ -9,29 +9,29 @@ use App\Http\Controllers\SsoApiController;
  * Healthcheck ringan
  * GET /sistagor/api/ping
  */
-Route::get('/ping', function () {
-    return response()
-        ->json(['pong' => true, 'ts' => now()->toIso8601String()])
-        ->setPublic()
-        ->setMaxAge(60)
-        ->setSharedMaxAge(60);
-})->name('statpub.ping');
+Route::get('/ping', [StatistikPublikController::class, 'ping'])->name('statpub.ping');
+
+Route::prefix('publik')
+    ->middleware(['throttle:publik', 'api.publik.key'])
+    ->group(function () {
+        Route::get('/statistik', [StatistikPublikController::class, 'show'])->name('statpub.show');
+        Route::get('/health', [StatistikPublikController::class, 'health'])->name('statpub.health');
+    });
 
 /**
  * Endpoint statistik publik untuk halaman grafik
  * GET /sistagor/api/statistik-publik[?kegiatan=1&tahun=2025]
  * - throttle ditingkatkan agar cukup longgar untuk halaman publik
  */
-Route::middleware('throttle:120,1')->get('/statistik-publik', [StatistikPublikController::class, 'show'])
-    ->name('statpub.show');
+Route::middleware(['throttle:publik', 'api.publik.key'])
+    ->get('/statistik-publik', [StatistikPublikController::class, 'show'])
+    ->name('statpub.legacy');
 
 /**
  * (Opsional) alias/kompat lama bila sebelumnya ada path /api/statistik
  * GET /sistagor/api/statistik → 301 ke /sistagor/api/statistik-publik
  */
-Route::get('/statistik', function () {
-    return redirect()->route('statpub.show', request()->query(), 301);
-})->name('statpub.legacy');
+Route::get('/statistik', [StatistikPublikController::class, 'legacyRedirect'])->name('statpub.redirect');
 
 // SSO consume endpoint (SSO -> Kematangan)
 Route::post('/sso/consume', [SsoConsumeController::class, 'consume'])->name('sso.consume');
